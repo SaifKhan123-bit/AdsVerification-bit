@@ -1,7 +1,9 @@
 const jwt = require('jsonwebtoken');
 const admin = require('firebase-admin');
+const fetch = require('node-fetch');
 
-// Firebase Admin SDK ইনিশিয়ালাইজেশন
+const CONFIG_URL = "https://raw.githubusercontent.com/YaminDeveloper/AdsShortJson/refs/heads/main/config.json";
+
 try {
     if (!admin.apps.length) {
         const serviceAccountJson = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf8');
@@ -12,37 +14,15 @@ try {
         });
     }
 } catch (e) {
-    console.error('Firebase Admin Initialization Error:', e);
-}
-
-// রিমোট কনফিগারেশন লোড করার জন্য একটি ফাংশন
-async function getRemoteConfig() {
-    // node-fetch এর আর প্রয়োজন নেই, Node.js v18+ এ fetch বিল্ট-ইন
-    const CONFIG_URL = "https://raw.githubusercontent.com/SaifKhan123-bit/AdsConfig/refs/heads/main/config.json";
-    const response = await fetch(CONFIG_URL);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch remote config. Status: ${response.status}`);
-    }
-    return response.json();
+    console.error('Firebase Admin Initialization Error:', e.message);
 }
 
 exports.handler = async (event) => {
-    const headers = {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
-    };
-
-    if (event.httpMethod === 'OPTIONS') {
-        return { statusCode: 204, headers, body: '' };
-    }
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, headers, body: 'Method Not Allowed' };
-    }
+    const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
+    if (event.httpMethod === 'OPTIONS') { return { statusCode: 204, headers, body: '' }; }
+    if (event.httpMethod !== 'POST') { return { statusCode: 405, headers, body: 'Method Not Allowed' }; }
 
     try {
-        const config = await getRemoteConfig();
-        
         const { token } = JSON.parse(event.body);
         if (!token) {
             return { statusCode: 400, headers, body: JSON.stringify({ error: 'Token is required' }) };
@@ -50,68 +30,53 @@ exports.handler = async (event) => {
 
         const JWT_SECRET = process.env.JWT_SECRET;
         if (!JWT_SECRET) {
-            throw new Error('JWT_SECRET is not configured on the server.');
+            throw new Error('Server configuration error: JWT_SECRET environment variable is not set.');
         }
 
         const decoded = jwt.verify(token, JWT_SECRET);
-        const { deviceId, verification_token } = decoded;
+        
+        // ===============================================
+        // === এই অংশটি আপডেট করা হয়েছে ===
+        // ===============================================
+        // এখন শুধু deviceId ডিকোড করা হচ্ছে
+        const { deviceId } = decoded;
 
-        if (!deviceId || !verification_token) {
-            return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid token payload' }) };
+        if (!deviceId) {
+            return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid token payload: deviceId is missing.' }) };
         }
         
         const db = admin.database();
 
         const blockSnapshot = await db.ref(`blocked_devices/${deviceId}`).once('value');
         if (blockSnapshot.exists()) {
-            return {
-                statusCode: 403,
-                headers,
-                body: JSON.stringify({ error: 'This device has been blocked.' })
-            };
+            return { statusCode: 403, headers, body: JSON.stringify({ error: 'This device has been blocked.' }) };
         }
 
+        // রিমোট কনফিগারেশন থেকে ভেরিফিকেশনের সময়কাল নেওয়া হচ্ছে
+        const configResponse = await fetch(CONFIG_URL);
+        if (!configResponse.ok) throw new Error('Failed to fetch remote config');
+        const config = await configResponse.json();
         const verificationConfig = config.verification || {};
         const useHours = verificationConfig.useHours === true;
-        let durationMillis;
-
-        if (useHours) {
-            const durationHours = verificationConfig.durationHours || 48;
-            durationMillis = durationHours * 60 * 60 * 1000;
-        } else {
-            const durationMinutes = verificationConfig.durationMinutes || 60;
-            durationMillis = durationMinutes * 60 * 1000;
-        }
-        
+        let durationMillis = (useHours ? (verificationConfig.durationHours || 48) : (verificationConfig.durationMinutes || 60)) * (useHours ? 3600000 : 60000);
         const expirationTime = Date.now() + durationMillis;
 
+        // Firebase-এ সম্পূর্ণ টোকেনটি সেভ করা হচ্ছে
         await db.ref(`verified_devices/${deviceId}`).set({
             expiration: expirationTime,
-            last_token: verification_token,
-            isPermanent: false,
+            last_token: token, // অ্যান্ড্রয়েড অ্যাপ এই টোকেনটিই মেলাবে
             verified_at: new Date().toISOString()
         });
+        // ===============================================
 
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({ message: `Successfully verified device: ${deviceId}` })
-        };
+        return { statusCode: 200, headers, body: JSON.stringify({ message: `Successfully verified device: ${deviceId}` }) };
 
     } catch (error) {
         if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-            return { 
-                statusCode: 401,
-                headers,
-                body: JSON.stringify({ error: 'Invalid or expired token.' }) 
-            };
+            return { statusCode: 401, headers, body: JSON.stringify({ error: 'Invalid or expired token.' }) };
         }
         
-        console.error('Function Error:', error);
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: error.message || 'An internal server error occurred.' })
-        };
+        console.error('Function Runtime Error:', error.message);
+        return { statusCode: 500, headers, body: JSON.stringify({ error: 'An internal server error occurred.' }) };
     }
 };
