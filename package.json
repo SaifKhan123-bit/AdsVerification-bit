@@ -1,5 +1,5 @@
 {
-  "name": "AdsVerification-system",
+  "name": "AdsVerification-bit-system",
   "version": "1.0.0",
   "description": "Backend functions for the Pin Verification system, including JWT handling and Firebase integration.",
   "main": "index.js",
