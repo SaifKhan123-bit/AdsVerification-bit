@@ -18,7 +18,7 @@ try {
 // রিমোট কনফিগারেশন লোড করার জন্য একটি ফাংশন
 async function getRemoteConfig() {
     // node-fetch এর আর প্রয়োজন নেই, Node.js v18+ এ fetch বিল্ট-ইন
-    const CONFIG_URL = "https://raw.githubusercontent.com/YaminDeveloper/AdsVerificationConfig/main/config.json";
+    const CONFIG_URL = "https://raw.githubusercontent.com/SaifKhan123-bit/AdsConfig/refs/heads/main/config.json";
     const response = await fetch(CONFIG_URL);
     if (!response.ok) {
         throw new Error(`Failed to fetch remote config. Status: ${response.status}`);
