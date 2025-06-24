@@ -25,7 +25,7 @@ exports.handler = async function(event) {
 
     try {
         const apiToken = process.env.ADSTERRA_API_TOKEN;
-        const placementId = 26857271;
+        const placementId = 21125708;
 
         if (!apiToken) {
             throw new Error('Adsterra API token is not configured.');
