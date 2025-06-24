@@ -1,4 +1,7 @@
-const axios = require('axios');
+const jwt = require('jsonwebtoken');
+
+// আপনার Netlify প্রজেক্টের Environment Variables-এ JWT_SECRET সেট করতে ভুলবেন না
+const JWT_SECRET = process.env.JWT_SECRET;
 
 exports.handler = async function(event) {
     const headers = {
@@ -8,52 +11,41 @@ exports.handler = async function(event) {
     };
 
     if (event.httpMethod === 'OPTIONS') {
-        return {
-            statusCode: 204,
-            headers,
-            body: ''
-        };
+        return { statusCode: 204, headers, body: '' };
     }
 
     if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 405,
-            headers,
-            body: 'Method Not Allowed'
-        };
+        return { statusCode: 405, headers, body: 'Method Not Allowed' };
     }
 
     try {
-        const apiToken = process.env.ADSTERRA_API_TOKEN;
-        const placementId = 26857271;
-
-        if (!apiToken) {
-            throw new Error('Adsterra API token is not configured.');
+        if (!JWT_SECRET) {
+            console.error('Server configuration error: JWT_SECRET is not set.');
+            return { statusCode: 500, headers, body: JSON.stringify({ error: 'Server configuration error.' }) };
         }
 
-        const response = await axios.post(
-            'https://beta.publishers.adsterra.com/api/v2/direct_links', { placementId: placementId }, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiToken}`
-                }
-            }
+        // ===============================================
+        // === এই অংশটি আপডেট করা হয়েছে ===
+        // ===============================================
+        // এখন শুধু deviceId গ্রহণ করা হচ্ছে
+        const { deviceId } = JSON.parse(event.body);
+
+        if (!deviceId) {
+            return { statusCode: 400, headers, body: JSON.stringify({ error: 'Device ID is required.' }) };
+        }
+
+        // JWT টোকেন শুধুমাত্র deviceId দিয়ে তৈরি করা হচ্ছে
+        const token = jwt.sign(
+            { deviceId: deviceId },
+            JWT_SECRET,
+            { expiresIn: '10m' } // টোকেনটি ৫ মিনিট কার্যকর থাকবে
         );
+        // ===============================================
 
-        const directLink = response.data.url;
-
-        return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({ token: directLink })
-        };
+        return { statusCode: 200, headers, body: JSON.stringify({ token: token }) };
 
     } catch (error) {
-        console.error('Adsterra API Error:', error.response ? error.response.data : error.message);
-        return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: 'Failed to fetch link from Adsterra.' })
-        };
+        console.error("Token Generation Error:", error.message);
+        return { statusCode: 500, headers, body: JSON.stringify({ error: 'An internal server error occurred.' }) };
     }
 };
